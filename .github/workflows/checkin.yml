@@ -2,7 +2,6 @@ name: Trae Daily Checkin
 
 on:
   schedule:
-    # 北京时间 00:23（UTC 16:23 前一天），早窗容量最松
     - cron: "23 16 * * *"
   workflow_dispatch: {}
 
@@ -37,6 +36,8 @@ jobs:
 
       - name: Save result file
         if: always()
+        env:
+          TRAE_ACCOUNTS: ${{ secrets.TRAE_ACCOUNTS }}
         run: |
           python - <<'PY'
           import datetime, os
@@ -46,11 +47,22 @@ jobs:
               s = line.strip()
               if any(k in s for k in ('[结果]', '[状态]', '✅ 成功', '🏁', '🕒 结束时间')):
                   keep.append(s)
+          try:
+              import trae_checkin as t
+              for acc in t.load_accounts():
+                  name = acc.get('_name') or acc.get('name') or acc.get('uid', '?')
+                  try:
+                      pts = t.credits_summary(acc)
+                      keep.append('💰 %s 总积分: %s' % (name, pts if pts is not None else '查询失败'))
+                  except Exception as e:
+                      keep.append('💰 %s 总积分查询失败: %s' % (name, e))
+          except Exception as e:
+              keep.append('💰 总积分查询失败: %s' % e)
           bj = datetime.timezone(datetime.timedelta(hours=8))
           os.makedirs('data', exist_ok=True)
           with open('data/last_checkin.txt', 'w', encoding='utf-8') as f:
               f.write('更新时间: %s\n' % datetime.datetime.now(bj).strftime('%Y-%m-%d %H:%M'))
-              f.write('\n'.join(keep[-40:]) + '\n')
+              f.write('\n'.join(keep) + '\n')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
