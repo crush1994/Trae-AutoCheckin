@@ -1,4 +1,67 @@
 name: Trae Daily Checkin
+name: Trae Daily Checkin
+
+on:
+  schedule:
+    # 北京时间 00:23（UTC 16:23 前一天），早窗容量最松
+    - cron: "23 16 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trae-checkin
+  cancel-in-progress: true
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run checkin (all accounts)
+        env:
+          TRAE_ACCOUNTS: ${{ secrets.TRAE_ACCOUNTS }}
+          QYWX_TOKEN: ${{ secrets.QYWX_TOKEN }}
+          TRAE_JITTER: "1"
+        run: |
+          set -o pipefail
+          python trae_checkin.py 2>&1 | tee /tmp/checkin.log
+
+      - name: Save result file
+        if: always()
+        run: |
+          python - <<'PY'
+          import datetime, os
+          log = open('/tmp/checkin.log', encoding='utf-8').read()
+          keep = []
+          for line in log.splitlines():
+              s = line.strip()
+              if any(k in s for k in ('[结果]', '[状态]', '✅ 成功', '🏁', '🕒 结束时间')):
+                  keep.append(s)
+          bj = datetime.timezone(datetime.timedelta(hours=8))
+          os.makedirs('data', exist_ok=True)
+          with open('data/last_checkin.txt', 'w', encoding='utf-8') as f:
+              f.write('更新时间: %s\n' % datetime.datetime.now(bj).strftime('%Y-%m-%d %H:%M'))
+              f.write('\n'.join(keep[-40:]) + '\n')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/last_checkin.txt
+          git commit -m "chore: update last checkin result [skip ci]" || echo "nothing to commit"
+          git push
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "::warning::签到脚本执行失败，请检查 secrets 和日志"
 
 on:
   schedule:
